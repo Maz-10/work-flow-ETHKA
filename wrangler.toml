@@ -1,0 +1,33 @@
+# نشرُ صفحة رسم سير العمل على Cloudflare Workers.
+#   npx wrangler d1 create ethka-workflow        ← ثم ضع database_id أدناه
+#   npx wrangler d1 migrations apply ethka-workflow --remote
+#   npx wrangler secret put TEAM_KEY             ← مفتاحُ لوحة الفريق، سرٌّ لا يُكتب هنا
+#   npx wrangler deploy
+name = "ethka-workflow"
+main = "worker/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+preview_urls = false
+
+# سجلّاتُ العامل في لوحة Cloudflare (ومنها نتيجةُ كل إرسالٍ إلى بريد إذكاء)
+[observability]
+enabled = true
+
+# الصفحتان وأصولهما تُضمّ إلى العامل نفسِه قبل كل نشر
+[build]
+command = "node worker/build-assets.mjs"
+
+# النطاقُ الذي يُرسل منه الرابطُ للعميل. يتطلب أن يكون ethka.sa في الحساب نفسِه (وهو كذلك للموقع التعريفيّ).
+# routes = [{ pattern = "workflow.ethka.sa", custom_domain = true }]
+
+# بريدُ إذكاء: كلُّ مهمةٍ يكملها العميل تصل الفريقَ رسالةً بخلاصتها. الوجهةُ موثَّقةٌ في Email Routing لنطاق ethka.sa،
+# والمرسِلُ workflow@ethka.sa (أو متغيّر MAIL_FROM) من النطاق نفسِه.
+[[send_email]]
+name = "WORKFLOW_MAIL"
+destination_address = "hello@ethka.sa"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ethka-workflow"
+database_id = "43bec5c9-b542-436e-a367-22b35626faaa"
+migrations_dir = "migrations"
