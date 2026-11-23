@@ -5,7 +5,7 @@
 
 ## النشر على Cloudflare — الرابطُ الذي يُرسَل للعميل
 
-**منشورٌ الآن**: https://ethka-workflow.rtrt-am.workers.dev — ولوحةُ الفريق `/team/`، وقاعدتُه D1 `ethka-workflow`.
+**منشورٌ الآن**: https://workflow.ethka.sa — ولوحةُ الفريق https://workflow.ethka.sa/team/، وقاعدتُه D1 `ethka-workflow`.
 والصفحتان وأصولُهما تُضمّ إلى العامل عند كل نشر (`worker/build-assets.mjs`)، فـ`npx wrangler deploy` وحده يكفي.
 
 العاملُ `worker/index.js` يقدّم الصفحةَ ولوحةَ الفريق وواجهتهما، والمخزنُ قاعدةُ **D1**، والبريدُ ربطُ **`send_email`**:
@@ -19,7 +19,7 @@ npx wrangler deploy
 ```
 
 - **البريد**: تُرى نتيجةُ آخر إرسالٍ في رأس لوحة الفريق، فلا ينقطع صامتًا. ويشترط أن يكون Email Routing مفعَّلًا لنطاق ethka.sa وأن تكون hello@ethka.sa وجهةً موثَّقة فيه (وهي كذلك للموقع التعريفيّ)، والمرسِلُ `workflow@ethka.sa` (أو متغيّر `MAIL_FROM`).
-- **النطاق**: فعّل سطر `routes` في `wrangler.toml` ليكون الرابطُ على `workflow.ethka.sa` بدل عنوان workers.dev.
+- **النطاق**: `workflow.ethka.sa` مربوطٌ بالعامل (سطر `routes` في `wrangler.toml`)، فأنشئ روابط العملاء من لوحة الفريق على هذا النطاق.
 - **لكل جهةٍ رابط**: من لوحة الفريق (`/team/`) «رابط جديد لجهة» ← `/r/<مفتاح>` يُرسل للعميل. لا تسجيل دخول عليه.
 
 ## التشغيل محليًّا

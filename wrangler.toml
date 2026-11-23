@@ -8,6 +8,8 @@ main = "worker/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
 preview_urls = false
+# الرابطُ الذي يُرسَل للعميل
+routes = [{ pattern = "workflow.ethka.sa", custom_domain = true }]
 
 # سجلّاتُ العامل في لوحة Cloudflare (ومنها نتيجةُ كل إرسالٍ إلى بريد إذكاء)
 [observability]
@@ -16,9 +18,6 @@ enabled = true
 # الصفحتان وأصولهما تُضمّ إلى العامل نفسِه قبل كل نشر
 [build]
 command = "node worker/build-assets.mjs"
-
-# النطاقُ الذي يُرسل منه الرابطُ للعميل. يتطلب أن يكون ethka.sa في الحساب نفسِه (وهو كذلك للموقع التعريفيّ).
-# routes = [{ pattern = "workflow.ethka.sa", custom_domain = true }]
 
 # بريدُ إذكاء: كلُّ مهمةٍ يكملها العميل تصل الفريقَ رسالةً بخلاصتها. الوجهةُ موثَّقةٌ في Email Routing لنطاق ethka.sa،
 # والمرسِلُ workflow@ethka.sa (أو متغيّر MAIL_FROM) من النطاق نفسِه.
