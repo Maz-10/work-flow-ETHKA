@@ -5,7 +5,7 @@
 
 ## النشر على Cloudflare — الرابطُ الذي يُرسَل للعميل
 
-**منشورٌ الآن**: https://workflow.ethka.sa — ولوحةُ الفريق https://workflow.ethka.sa/team/، وقاعدتُه D1 `ethka-workflow`.
+**منشورٌ الآن**: https://workflow.ethka.sa — ولوحةُ الفريق https://workflow.ethka.sa/team/ (وعنوانُ workers.dev موقوف)، وقاعدتُه D1 `ethka-workflow`.
 والصفحتان وأصولُهما تُضمّ إلى العامل عند كل نشر (`worker/build-assets.mjs`)، فـ`npx wrangler deploy` وحده يكفي.
 
 العاملُ `worker/index.js` يقدّم الصفحةَ ولوحةَ الفريق وواجهتهما، والمخزنُ قاعدةُ **D1**، والبريدُ ربطُ **`send_email`**:
