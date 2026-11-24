@@ -140,11 +140,10 @@ function cardHTML(s, num, mode, ctx, clar) {
   const cond = s.status === 'sometimes' ? `<span class="cond-tag">${s.condition ? 'تحدث ' + esc(s.condition) : 'تحدث أحيانًا'}</span>` : ''
   const qs = edit && clar.length ? clar.map((q) => `<div class="clar"><span class="lbl">${esc(q.question)}</span><div class="chips">${q.options.map((o, k) => chip(`clar:${q.id}:${k}`, esc(o), false)).join('')}${unk(`clar:${q.id}:-1`, false)}</div></div>`).join('') : ''
   return `<article class="${cls}" data-sid="${s.id}" ${attrs}>
-    ${edit ? `<button class="open" data-a="open:${s.id}" aria-label="خصائص مرحلة ${esc(s.name)}"></button>` : ''}
     <div class="row">
       <span class="num">${n(num)}</span>
-      <span class="nm">${esc(s.name)}</span>
-      ${edit ? `<button class="grip" data-grip="${s.id}" aria-label="اسحب لتغيير ترتيب المرحلة">${icon('grip', 18)}</button>` : ''}
+      ${edit ? `<button class="nm open" data-a="open:${s.id}">${esc(s.name)}</button>` : `<span class="nm">${esc(s.name)}</span>`}
+      ${edit ? `<button class="grip" data-grip="${s.id}" data-a="open:${s.id}" aria-label="اسحب لتغيير ترتيب المرحلة، أو اضغط لتحريرها">${icon('grip', 18)}</button>` : ''}
     </div>
     ${cond ? `<div class="marks">${cond}</div>` : ''}
     ${!pending && !s.guide ? `<div class="marks">${marksOf(s, ctx)}</div>` : ''}
@@ -156,10 +155,10 @@ function decHTML(d, task, edit) {
   const back = task.stages.find((s) => s.id === d.back)
   const branch = back ? `وإلا رجعت إلى «${esc(back.name)}»` : d.out ? `وإلا: ${esc(d.out)}` : ''
   const freq = d.common === 'common' ? '، ويتكرر هذا كثيرًا' : d.common === 'rare' ? '، ونادرًا ما يحدث' : ''
+  const body = `<b>${esc(d.q)}</b><span class="br">${branch}${freq}</span>`
   return `<div class="dec" data-did="${d.id}" ${back ? `data-back="${back.id}"` : ''}>
-    ${edit ? `<button class="edit" data-a="dec-open:${d.id}" aria-label="عدّل نقطة القرار: ${esc(d.q)}"></button>` : ''}
     <span class="dia" aria-hidden="true"><span>؟</span></span>
-    <span class="body"><b>${esc(d.q)}</b><span class="br">${branch}${freq}</span></span>
+    ${edit ? `<button class="body edit" data-a="dec-open:${d.id}">${body}</button>` : `<span class="body">${body}</span>`}
   </div>`
 }
 

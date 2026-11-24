@@ -106,7 +106,7 @@ function persist() {
 }
 
 /** كلُّ تغييرٍ يمرّ من هنا: لقطةٌ للتراجع، ثم التغيير، ثم الحفظ، ثم إعادة الرسم. */
-export function update(fn, { undoable = true, render = true } = {}) {
+export function update(fn, { undoable = true, render = true, touchTask = true } = {}) {
   if (undoable) {
     undoStack.push(JSON.stringify(state))
     if (undoStack.length > 80) undoStack.shift()
@@ -114,7 +114,7 @@ export function update(fn, { undoable = true, render = true } = {}) {
   fn(state)
   const now = Date.now()
   state.updatedAt = now
-  const t = curTask(); if (t) t.updatedAt = now
+  const t = curTask(); if (t && touchTask) t.updatedAt = now
   persist()
   if (render) listeners.forEach((l) => l())
 }
@@ -128,8 +128,14 @@ export const canUndo = () => undoStack.length > 0
 export function undo() {
   const prev = undoStack.pop()
   if (!prev) return
-  replace(JSON.parse(prev))
+  const snapshot = JSON.parse(prev)
+  const completed = state.tasks.filter((t) => t.completed)
+  const completedIds = new Set(completed.map((t) => t.id))
+  snapshot.tasks = [...snapshot.tasks.filter((t) => !completedIds.has(t.id)), ...completed]
+  replace(snapshot)
   state.updatedAt = Date.now()
+  const task = curTask()
+  if (task && !task.completed) task.updatedAt = state.updatedAt
   persist()
   listeners.forEach((l) => l())
 }

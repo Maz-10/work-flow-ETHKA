@@ -130,6 +130,7 @@ export function createApp({ store, teamKey, mail = null, origin = '', later = (p
       if (!incoming || !Array.isArray(incoming.tasks)) return json(400, { error: 'shape' })
       const before = await getState(root.token)
       const merged = merge(before, sanitize(incoming))
+      let linkChanged = false
       // زميلٌ أكمل المرحلة التي أُرسلت إليه: إشعارٌ لصاحب الرابط
       if (link.parent && link.stageId && !link.doneNotified) {
         const s = merged.tasks.find((x) => x.id === link.taskId)?.stages.find((x) => x.id === link.stageId)
@@ -137,13 +138,14 @@ export function createApp({ store, teamKey, mail = null, origin = '', later = (p
           link.doneNotified = true; await putLink(link)
           notify(root, `أكمل زميلك خصائص «${s.name}».`)
           ;(root.events ||= []).push({ name: 'colleague-done', at: new Date().toISOString(), data: { stage: s.name } })
+          linkChanged = true
         }
       }
       await putState(root.token, merged)
       mailCompleted(root, merged, before)
       const notices = noticesFor(link, root)
-      await putLink(root)
-      return json(200, { ok: true, notices })
+      if (linkChanged || notices.length) await putLink(root)
+      return json(200, { ok: true, notices, completed: merged.tasks.filter((t) => t.completed).map((t) => t.id) })
     }
     if (method === 'POST' && rest === '/events') {
       if (limited(token, 'events', 2000)) return json(429, { error: 'rate' })
@@ -178,11 +180,10 @@ export function createApp({ store, teamKey, mail = null, origin = '', later = (p
   }
 
   // ── واجهةُ الفريق
-  async function summary(l) {
+  async function summary(l, all) {
     const st = await getState(l.token)
     const ev = l.events || []
     const steps = ev.filter((e) => e.name === 'step').map((e) => e.data?.screen)
-    const all = await store.list('link:')
     return {
       token: l.token, org: l.org, createdAt: l.createdAt, status: await status(l), followup: l.followup || 'new',
       tasks: (st?.tasks || []).length, completed: (st?.tasks || []).filter((t) => t.completed).length,
@@ -196,7 +197,7 @@ export function createApp({ store, teamKey, mail = null, origin = '', later = (p
     const parts = rest.split('/').filter(Boolean)
     if (method === 'GET' && parts[0] === 'links' && !parts[1]) {
       const all = await store.list('link:')
-      const list = await Promise.all(all.filter((l) => !l.parent).map(summary))
+      const list = await Promise.all(all.filter((l) => !l.parent).map((link) => summary(link, all)))
       list.sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''))
       // مؤشراتُ المسار: كم فتح الرابط، وكم بدأ، وكم أكمل، وعند أي خطوة ينسحب العملاء
       const funnel = { links: list.length, opened: 0, started: 0, completed: 0, dropoff: {} }
@@ -221,7 +222,7 @@ export function createApp({ store, teamKey, mail = null, origin = '', later = (p
     if (method === 'GET' && l && !parts[2]) {
       const all = await store.list('link:')
       const children = all.filter((x) => x.parent === l.token).map((x) => ({ createdAt: x.createdAt, taskId: x.taskId, stageId: x.stageId, done: !!x.doneNotified }))
-      return json(200, { link: { ...(await summary(l)), notes: l.notes || '', taskNotes: l.taskNotes || {}, events: (l.events || []).slice(-200), bookings: [] }, state: await getState(l.token), children })
+      return json(200, { link: { ...(await summary(l, all)), notes: l.notes || '', taskNotes: l.taskNotes || {}, events: (l.events || []).slice(-200), bookings: [] }, state: await getState(l.token), children })
     }
     if (method === 'PATCH' && l && !parts[2]) {
       const b = await read(50_000)

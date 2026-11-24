@@ -13,12 +13,12 @@ const STATUS = { new: 'لم يُفتح', opened: 'فُتح', started: 'بدأ', 
 const FOLLOW = { new: 'جديد', studying: 'قيد الدراسة', scheduled: 'حُددت الجلسة', proposal: 'أُرسل المقترح' }
 const SCREEN = { welcome: 'الترحيب', pick: 'اختيار المهمة', method: 'طريقة الرسم', story: 'الحكاية', map: 'رسم المراحل', props: 'الخصائص', task: 'أسئلة المهمة', reflect: 'الانعكاس', final: 'السؤال الأخير' }
 const date = (s) => (s ? new Intl.DateTimeFormat('ar-SA-u-nu-arab-ca-gregory', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(s)) : '—')
-const ui = { key: sessionStorage.getItem(KEY) || '', data: null, detail: null, created: null, tplFor: null, err: '' }
+const ui = { key: sessionStorage.getItem(KEY) || '', data: null, detail: null, created: null, tplFor: null, err: '', loadError: '', loadId: 0 }
 
 async function api(path, opts = {}) {
   const res = await fetch('/api/team/' + path, { ...opts, headers: { 'content-type': 'application/json', 'x-team-key': ui.key, ...(opts.headers || {}) } })
   if (res.status === 401) { ui.key = ''; sessionStorage.removeItem(KEY); render(); throw new Error('key') }
-  if (!res.ok) throw new Error('http ' + res.status)
+  if (!res.ok) throw Object.assign(new Error('http ' + res.status), { status: res.status })
   return res.json()
 }
 
@@ -32,10 +32,33 @@ const head = () => `<header class="top">${R.logo()}<span class="org">لوحة ا
 function gate() {
   return `<main><section class="gate">${R.logo()}
     <h1>لوحة فريق إذكاء</h1>
+    <p class="small muted">هنا تُنشئ روابط الجهات وتراجع الخرائط الواردة. استخدم مفتاح لوحة الفريق.</p>
     <form class="q" data-form="key"><label class="ql" for="key">مفتاح الفريق</label>
       <input id="key" class="input" type="password" autocomplete="current-password" dir="ltr">
       ${ui.err ? `<p class="field-err">${esc(ui.err)}</p>` : ''}
       <div class="actions"><button class="btn primary">ادخل</button></div></form>
+  </section></main>`
+}
+
+const clientUrl = (token) => new URL('/r/' + encodeURIComponent(token), location.origin).href
+const teamUrl = (token) => '#' + encodeURIComponent(token)
+const invitation = (org, url) => `مرحبًا بفريق ${org}،\nنرجو اختيار مهمة واحدة من عملكم ورسم مراحلها كما تجري لديكم عبر هذا الرابط الخاص بجهتكم:\n${url}\nعند الانتهاء، اضغطوا «أرسل الخريطة إلى إذكاء». ونرجو الاكتفاء بوصف الإجراء دون أسماء الأشخاص أو أرقام القضايا.\nفريق إذكاء`
+
+function shareTools(link) {
+  const url = clientUrl(link.token)
+  return `<div class="share-tools">
+    <div class="copy-row"><input class="input" readonly value="${esc(url)}" aria-label="رابط الجهة"><button class="btn ghost" data-a="copy">انسخ الرابط</button></div>
+    <button class="btn primary copy-message" data-a="copy-message">انسخ رسالة العميل</button>
+    <details class="share-message">
+      <summary>رسالة جاهزة للعميل</summary>
+      <textarea class="textarea" readonly aria-label="رسالة العميل">${esc(invitation(link.org, url))}</textarea>
+    </details>
+  </div>`
+}
+
+function loadProblem(token) {
+  return `<main><section class="page">${token ? '<a class="back-link" href="#">كل الجهات</a>' : ''}
+    <h1>${esc(ui.loadError)}</h1><button class="btn ghost" data-a="refresh">أعد المحاولة</button>
   </section></main>`
 }
 
@@ -45,7 +68,8 @@ function list() {
   const f = d.funnel
   const drop = Object.entries(f.dropoff).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${SCREEN[k] || k}: ${n(v)}`).join('، و')
   return `<main><section class="page">
-    <h1>الروابط الخاصة</h1>
+    <div class="team-title"><h1>الجهات وروابطها</h1><button class="btn ghost" data-a="refresh">حدّث القائمة</button></div>
+    <p class="small muted">أنشئ رابطًا لكل جهة جديدة. لإعادة الإرسال، افتح الجهة وانسخ رابطها الحالي. تجد خرائطها في صفحتها نفسها.</p>
     <div class="funnel" role="list">
       <div role="listitem"><b>${n(f.links)}</b><span>الروابط</span></div>
       <div role="listitem"><b>${n(f.opened)}</b><span>فُتحت</span></div>
@@ -55,21 +79,22 @@ function list() {
     ${drop ? `<p class="drop">توقف من لم يكمل عند: ${esc(drop)}.</p>` : ''}
     ${mailLine(d.mail)}
     <div class="t-grid">
-      <div>
+      <div class="team-records">
         ${d.links.length ? `<table class="links"><thead><tr><th>الجهة</th><th>الحالة</th><th>المتابعة</th><th>المهام</th><th>آخر نشاط</th></tr></thead><tbody>
-          ${d.links.map((l) => `<tr><td><a href="#${l.token}" class="org">${esc(l.org)}${l.revoked ? ' <span class="tag">أُلغي</span>' : ''}</a></td>
-            <td><a href="#${l.token}"><span class="tag ${l.status}">${STATUS[l.status]}</span></a></td>
-            <td><a href="#${l.token}">${FOLLOW[l.followup]}</a></td>
-            <td><a href="#${l.token}">${n(l.completed)} من ${n(l.tasks)}</a></td>
-            <td><a href="#${l.token}">${date(l.lastActivity)}</a></td></tr>`).join('')}
+          ${d.links.map((l) => `<tr><td><a href="${teamUrl(l.token)}" class="org">${esc(l.org)}${l.revoked ? ' <span class="tag">أُلغي</span>' : ''}</a></td>
+            <td><span><span class="tag ${l.status}">${STATUS[l.status]}</span></span></td>
+            <td><span>${FOLLOW[l.followup]}</span></td>
+            <td><span>${n(l.completed)} من ${n(l.tasks)}</span></td>
+            <td><span>${date(l.lastActivity)}</span></td></tr>`).join('')}
         </tbody></table>` : `<p class="empty-state">لا روابط بعد. أنشئ أول رابط لجهة من النموذج المجاور.</p>`}
       </div>
       <aside class="panel">
         <h2>رابط جديد لجهة</h2>
         <form data-form="create"><label class="ql" for="org">اسم الجهة كما يظهر للعميل</label>
-          <input id="org" class="input" autocomplete="off" required>
+          <input id="org" class="input" autocomplete="off" required maxlength="120">
           <div class="actions"><button class="btn primary">أنشئ الرابط</button></div></form>
-        ${ui.created ? `<div class="copy-row"><input class="input" readonly value="${esc(ui.created)}" aria-label="الرابط الجديد"><button class="btn ghost" data-a="copy:${esc(ui.created)}">انسخ</button></div><p class="small muted" style="margin-top:8px">أرسله إلى الجهة عبر واتساب أو البريد. لا يحتاج صاحبه إلى تسجيل دخول.</p>` : ''}
+        ${ui.created ? `<p class="small" role="status">أُنشئ رابط «${esc(ui.created.org)}»</p>
+          ${shareTools(ui.created)}<a class="back-link" href="${teamUrl(ui.created.token)}">افتح صفحة الجهة</a>` : ''}
       </aside>
     </div>
   </section></main>`
@@ -139,19 +164,19 @@ function detail() {
   const d = ui.detail
   if (!d) return `<main><section class="page"><p class="muted">نحمّل الجهة…</p></section></main>`
   const l = d.link
-  const url = location.origin + '/r/' + l.token
   const tasks = d.state?.tasks || []
   return `<main><section class="page">
-    <a class="back-link" href="#">${icon('back', 16)}كل الروابط</a>
-    <h1>${esc(l.org)}</h1>
+    <a class="back-link" href="#">${icon('back', 16)}كل الجهات</a>
+    <div class="team-title"><h1>${esc(l.org)}</h1><button class="btn ghost" data-a="refresh">حدّث الخرائط</button></div>
     <div class="t-grid">
       <div>
         <div class="q"><span class="ql">حالة المتابعة</span><div class="seg" role="group" aria-label="حالة المتابعة">${Object.entries(FOLLOW).map(([k, v]) => `<button data-a="follow:${k}" aria-pressed="${l.followup === k}">${v}</button>`).join('')}</div></div>
         <div class="q"><label class="ql" for="notes">ملاحظات الفريق الداخلية</label><textarea id="notes" class="textarea" data-notes>${esc(l.notes)}</textarea></div>
+        <h2 class="sec">خرائط الجهة</h2>
         ${tasks.length ? tasks.map((t) => taskBlock(t, d.state, l)).join('') : `<p class="empty-state">لم ترسم الجهة مهمة بعد. الحالة: ${STATUS[l.status]}.</p>`}
       </div>
       <aside>
-        <div class="panel"><h2>الرابط</h2><div class="copy-row"><input class="input" readonly value="${esc(url)}" aria-label="رابط الجهة"><button class="btn ghost" data-a="copy:${esc(url)}">انسخ</button></div>
+        <div class="panel"><h2>رابط العميل</h2>${l.revoked ? '<p class="small muted">الرابط ملغى حاليًا.</p>' : shareTools(l)}
           <dl class="kv"><dt>الحالة</dt><dd>${STATUS[l.status]}</dd><dt>أُنشئ</dt><dd>${date(l.createdAt)}</dd><dt>آخر نشاط</dt><dd>${date(l.lastActivity)}</dd><dt>آخر خطوة</dt><dd>${SCREEN[l.lastStep] || '—'}</dd><dt>روابط الزملاء</dt><dd>${n(d.children.length)}${d.children.filter((c) => c.done).length ? `، أكمل منها ${n(d.children.filter((c) => c.done).length)}` : ''}</dd></dl>
           <div class="actions"><a class="btn ghost" href="/api/team/links/${l.token}/export" data-a="export:${l.token}">صدّر البيانات</a><button class="btn link" data-a="revoke:${l.revoked ? 0 : 1}">${l.revoked ? 'أعد تفعيل الرابط' : 'ألغِ الرابط'}</button></div></div>
       </aside>
@@ -161,38 +186,64 @@ function detail() {
 
 function render() {
   const token = location.hash.slice(1)
-  $('#app').innerHTML = head() + (!ui.key ? gate() : token ? detail() : list())
+  $('#app').innerHTML = head() + (!ui.key ? gate() : ui.loadError ? loadProblem(token) : token ? detail() : list())
   requestAnimationFrame(R.drawArrows)
 }
 
 async function load() {
   if (!ui.key) return render()
+  const id = ++ui.loadId
   const token = location.hash.slice(1)
+  ui.loadError = ''
+  if (token && ui.detail?.link.token !== token) { ui.detail = null; ui.tplFor = null; render() }
   try {
-    if (token) { ui.detail = null; render(); ui.detail = await api('links/' + token) }
-    else { ui.data = await api('links') }
-  } catch (e) { if (e.message !== 'key') toast('تعذّر التحميل. حدّث الصفحة بعد قليل.') }
-  render()
+    const data = await api(token ? 'links/' + encodeURIComponent(token) : 'links')
+    if (id !== ui.loadId || !ui.key) return
+    if (token) ui.detail = data
+    else ui.data = data
+  } catch (e) {
+    if (id !== ui.loadId || e.message === 'key') return
+    ui.loadError = e.status === 404 ? 'تعذّر العثور على الجهة' : 'تعذّر تحميل البيانات'
+  }
+  if (id === ui.loadId) render()
 }
 
 document.addEventListener('submit', async (e) => {
-  e.preventDefault()
   const f = e.target
-  if (f.dataset.form === 'key') {
-    ui.key = f.querySelector('#key').value.trim(); ui.err = ''
-    try { await api('links'); sessionStorage.setItem(KEY, ui.key); load() } catch { ui.err = 'المفتاح غير صحيح.'; render() }
-  }
-  if (f.dataset.form === 'create') {
-    const org = f.querySelector('#org').value.trim()
-    if (!org) return
-    const r = await api('links', { method: 'POST', body: JSON.stringify({ org }) })
-    ui.created = location.origin + '/r/' + r.token
-    load()
-  }
-  if (f.dataset.form === 'tpl') {
-    const fd = new FormData(f)
-    await api('templates', { method: 'POST', body: JSON.stringify({ token: ui.detail.link.token, taskId: f.dataset.task, title: fd.get('title'), sub: fd.get('sub'), keywords: fd.get('keywords'), dept: fd.get('dept') }) })
-    ui.tplFor = null; toast('أُضيف القالب، ويظهر للعملاء في قائمة المهام.'); render()
+  if (!f.dataset.form) return
+  e.preventDefault()
+  const button = f.querySelector('button')
+  if (button.disabled) return
+  button.disabled = true
+  try {
+    if (f.dataset.form === 'key') {
+      ui.key = f.querySelector('#key').value.trim(); ui.err = ''
+      if (!ui.key) { ui.err = 'أدخل مفتاح لوحة الفريق.'; return render() }
+      ui.data = await api('links')
+      sessionStorage.setItem(KEY, ui.key)
+      if (location.hash.length > 1) await load()
+      else render()
+    }
+    if (f.dataset.form === 'create') {
+      const org = f.querySelector('#org').value.trim()
+      if (!org) return
+      const r = await api('links', { method: 'POST', body: JSON.stringify({ org }) })
+      ui.created = { token: r.token, org }
+      await load()
+    }
+    if (f.dataset.form === 'tpl') {
+      const fd = new FormData(f)
+      await api('templates', { method: 'POST', body: JSON.stringify({ token: ui.detail.link.token, taskId: f.dataset.task, title: fd.get('title'), sub: fd.get('sub'), keywords: fd.get('keywords'), dept: fd.get('dept') }) })
+      ui.tplFor = null; toast('أُضيف القالب، ويظهر للعملاء في قائمة المهام.'); render()
+    }
+  } catch (e) {
+    if (f.dataset.form === 'key') {
+      ui.key = ''
+      ui.err = e.message === 'key' ? 'مفتاح لوحة الفريق غير صحيح.' : 'تعذّر الاتصال باللوحة. حاول مجددًا.'
+      render()
+    } else if (e.message !== 'key') toast('لم تُحفظ التغييرات. حاول مجددًا.')
+  } finally {
+    button.disabled = false
   }
 })
 
@@ -201,33 +252,68 @@ document.addEventListener('click', async (e) => {
   if (!el) return
   const [a, ...args] = el.dataset.a.split(':')
   const arg = args.join(':')
-  if (a === 'export') {
-    e.preventDefault()
-    const res = await fetch(el.getAttribute('href'), { headers: { 'x-team-key': ui.key } })
-    const blob = await res.blob()
-    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `خرائط-${ui.detail.link.org}.json`; link.click()
-    return
-  }
   e.preventDefault()
-  if (a === 'logout') { ui.key = ''; sessionStorage.removeItem(KEY); render() }
-  if (a === 'copy') { try { await navigator.clipboard.writeText(arg); toast('نُسخ الرابط') } catch { toast('انسخه يدويًّا من الحقل') } }
-  if (a === 'follow') { await api('links/' + ui.detail.link.token, { method: 'PATCH', body: JSON.stringify({ followup: arg }) }); ui.detail.link.followup = arg; render() }
-  if (a === 'revoke') { await api('links/' + ui.detail.link.token, { method: 'PATCH', body: JSON.stringify({ revoked: arg === '1' }) }); load() }
-  if (a === 'tpl') { ui.tplFor = arg; render() }
-  if (a === 'tpl-cancel') { ui.tplFor = null; render() }
-  if (a === 'print') {
-    const t = ui.detail.state.tasks.find((x) => x.id === arg)
-    $('#print').innerHTML = R.printHTML(t, { ...roleCtx(ui.detail.state), org: ui.detail.link.org })
-    window.print()
+  try {
+    if (a === 'export') {
+      const org = ui.detail.link.org
+      const res = await fetch(el.getAttribute('href'), { headers: { 'x-team-key': ui.key } })
+      if (!res.ok) throw new Error('export')
+      const blob = await res.blob()
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob); link.download = `خرائط-${org}.json`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+      return
+    }
+    if (a === 'logout') {
+      Object.assign(ui, { key: '', data: null, detail: null, created: null, tplFor: null, err: '', loadError: '' })
+      ++ui.loadId
+      sessionStorage.removeItem(KEY); render()
+    }
+    if (a === 'refresh') await load()
+    if (a === 'copy' || a === 'copy-message') {
+      const message = a === 'copy-message'
+      const field = el.closest('.share-tools').querySelector(message ? 'textarea' : 'input')
+      try {
+        await navigator.clipboard.writeText(field.value)
+        toast(message ? 'نُسخت رسالة العميل' : 'نُسخ رابط الجهة')
+      } catch {
+        if (message) field.closest('details').open = true
+        field.focus(); field.select()
+        toast('حُدّد النص. انسخه يدويًّا.')
+      }
+    }
+    if (a === 'follow') { await api('links/' + ui.detail.link.token, { method: 'PATCH', body: JSON.stringify({ followup: arg }) }); ui.detail.link.followup = arg; render() }
+    if (a === 'revoke') { await api('links/' + ui.detail.link.token, { method: 'PATCH', body: JSON.stringify({ revoked: arg === '1' }) }); load() }
+    if (a === 'tpl') { ui.tplFor = arg; render() }
+    if (a === 'tpl-cancel') { ui.tplFor = null; render() }
+    if (a === 'print') {
+      const t = ui.detail.state.tasks.find((x) => x.id === arg)
+      $('#print').innerHTML = R.printHTML(t, { ...roleCtx(ui.detail.state), org: ui.detail.link.org })
+      window.print()
+    }
+  } catch (e) {
+    if (e.message !== 'key') toast(a === 'export' ? 'تعذّر تصدير البيانات. حاول مجددًا.' : 'لم يتم الإجراء. حاول مجددًا.')
   }
 })
 
 // الملاحظاتُ تُحفظ عند مغادرة الحقل
 document.addEventListener('focusout', async (e) => {
   const el = e.target
-  if (!ui.detail) return
-  if (el.matches('[data-notes]')) { await api('links/' + ui.detail.link.token, { method: 'PATCH', body: JSON.stringify({ notes: el.value }) }); toast('حُفظت الملاحظات') }
-  if (el.matches('[data-tn]')) { await api('links/' + ui.detail.link.token, { method: 'PATCH', body: JSON.stringify({ taskNotes: { [el.dataset.tn]: el.value } }) }); ui.detail.link.taskNotes[el.dataset.tn] = el.value; toast('حُفظت الملاحظة') }
+  const link = ui.detail?.link
+  if (!link) return
+  const task = el.dataset.tn
+  const notes = el.matches('[data-notes]')
+  if (!notes && !task) return
+  if (el.value === (notes ? link.notes : link.taskNotes[task] || '')) return
+  try {
+    await api('links/' + link.token, { method: 'PATCH', body: JSON.stringify(notes ? { notes: el.value } : { taskNotes: { [task]: el.value } }) })
+    if (notes) link.notes = el.value
+    else link.taskNotes[task] = el.value
+    toast('حُفظت الملاحظة')
+  } catch (e) {
+    if (e.message !== 'key') toast('تعذّر حفظ الملاحظة. حاول مجددًا.')
+  }
 })
 
 addEventListener('hashchange', load)
