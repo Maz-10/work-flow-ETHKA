@@ -35,16 +35,22 @@ export async function open() {
 const queue = () => { try { return JSON.parse(localStorage.getItem(QKEY) || '[]') } catch { return [] } }
 const saveQueue = (q) => { try { localStorage.setItem(QKEY, JSON.stringify(q.slice(-200))) } catch {} }
 
-async function flush() {
+let flushing = null
+function flush() {
   if (!TOKEN) return
-  const q = queue()
-  while (q.length) {
-    const item = q[0]
-    try { await call(item.path, { method: 'POST', body: JSON.stringify(item.body) }) } catch (e) {
-      if (!e.status || e.status >= 500 || e.status === 429) break // يُعاد لاحقًا
+  if (flushing) return flushing
+  flushing = (async () => {
+    for (let item; (item = queue()[0]);) {
+      try { await call(item.path, { method: 'POST', body: JSON.stringify(item.body) }) } catch (e) {
+        if (!e.status || e.status >= 500 || e.status === 429) break
+      }
+      const current = queue()
+      const index = current.findIndex((entry) => JSON.stringify(entry) === JSON.stringify(item))
+      if (index >= 0) current.splice(index, 1)
+      saveQueue(current)
     }
-    q.shift(); saveQueue(q)
-  }
+  })().finally(() => { flushing = null })
+  return flushing
 }
 
 export function event(name, data = {}) {
@@ -63,22 +69,47 @@ export async function booking(form) {
 // ── الحالة: تُرفع بعد هدوء الكتابة
 let timer = null
 let pending = null
+let running = null
 let backoff = 2000
 export function pushState(state, onResult) {
   if (!TOKEN) return
-  pending = state
+  pending = { state, onResult }
   clearTimeout(timer)
-  timer = setTimeout(async function send() {
-    const body = JSON.stringify(pending)
-    try {
-      const r = await call('/state', { method: 'PUT', body })
-      backoff = 2000
-      onResult && onResult(r)
-    } catch {
+  timer = setTimeout(sendInBackground, 1200)
+}
+
+function sendInBackground() { void syncNow().catch(() => {}) }
+
+export async function syncNow() {
+  clearTimeout(timer)
+  if (running) {
+    const receipt = await running.catch(() => null)
+    if (!pending) return receipt
+    return syncNow()
+  }
+  if (!pending) return null
+  const next = pending
+  pending = null
+  const body = JSON.stringify(next.state)
+  running = call('/state', { method: 'PUT', body })
+  try {
+    const receipt = await running
+    backoff = 2000
+    next.onResult?.(receipt)
+    return receipt
+  } catch (error) {
+    if (!error.status || error.status === 429 || error.status >= 500) {
+      pending ||= next
       backoff = Math.min(backoff * 2, 60000)
-      timer = setTimeout(send, backoff)
     }
-  }, 1200)
+    throw error
+  } finally {
+    running = null
+    if (pending) {
+      clearTimeout(timer)
+      timer = setTimeout(sendInBackground, backoff)
+    }
+  }
 }
 
 export async function share(body) { return call('/share', { method: 'POST', body: JSON.stringify(body) }) }
@@ -90,5 +121,5 @@ export async function transcribe(blob) {
   return body
 }
 
-addEventListener('online', flush)
+addEventListener('online', () => { flush(); sendInBackground() })
 setTimeout(flush, 3000)

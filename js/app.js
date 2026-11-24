@@ -24,6 +24,7 @@ const ui = {
   focusName: false, docPick: null, journey: null, roleDraft: null, confirmReset: false,
   caps: { arrange: false, transcribe: false }, recording: null,
   shareLink: null, shareMsg: '',
+  received: new Set(), sending: false, sendError: '', unavailable: false, details: new Map(),
 }
 const ctx = () => ({ roleOf, primary: true, selected: ui.sheet, grown: ui.grown, customRoles: state.roles, org: ORG })
 
@@ -40,7 +41,7 @@ function header() {
     ${where ? `<span class="org">${esc(where)}</span>` : ''}
     <span class="sp"></span>
     ${step ? `<span class="steps">${dots}<span>الخطوة ${ORD[step - 1]} من خمس</span></span>` : ''}
-    ${state.screen !== 'welcome' ? `<button class="icon-btn" data-a="undo" ${canUndo() ? '' : 'disabled'} aria-label="تراجع عن آخر تغيير">${icon('undo', 18)}<span class="hide-sm">تراجع</span></button>` : ''}
+    ${['map', 'props', 'task', 'reflect'].includes(state.screen) ? `<button class="icon-btn" data-a="undo" ${canUndo() ? '' : 'disabled'} aria-label="تراجع عن آخر تعديل">${icon('undo', 18)}<span class="hide-sm">تراجع عن تعديل</span></button>` : ''}
   </header>`
 }
 
@@ -49,7 +50,7 @@ function header() {
 const STEPS = [
   { shape: 'list', title: 'تختار المهمة', text: 'من مهام الإدارة القانونية الشائعة، أو مهمة أخرى تبنيها بنفسك' },
   { shape: 'path', title: 'تصحح مراحلها وخصائصها', text: 'بلمسات: هل تمرّون بها، ومن يتولاها، وكم تأخذ' },
-  { shape: 'ledger', title: 'ترى خريطتها وأرقامها', text: 'في ملف أنيق قابل للطباعة، يبقى عندك وعندنا' },
+  { shape: 'ledger', title: 'ترى خريطتها وأرقامها', text: 'في خريطة تستطيع طباعتها أو حفظها بصيغة PDF' },
 ]
 
 function welcome() {
@@ -63,19 +64,20 @@ function welcome() {
       <p class="hello-promise">أعدّ فريق إذكاء هذه الصفحة لإدارتكم خاصة. ترسم فيها مهمة واحدة من عملكم مرحلةً مرحلة، كما تجري عندكم فعلًا لا كما ينبغي أن تجري، ونفهم نحن منها عملكم قبل أن نقترح شيئًا.</p>
     </div>
     <ol class="hello-steps" aria-label="كيف تجري التجربة">
-      ${STEPS.map((x, i) => `<li tabindex="0" data-step="${i}" data-shape="${x.shape}"><span class="n">${n(i + 1)}</span><b>${x.title}</b><span class="t">${x.text}</span><i class="run" aria-hidden="true"></i></li>`).join('')}
+      ${STEPS.map((x, i) => `<li data-step="${i}" data-shape="${x.shape}"><span class="n">${n(i + 1)}</span><b>${x.title}</b><span class="t">${x.text}</span><i class="run" aria-hidden="true"></i></li>`).join('')}
     </ol>
     <div class="hello-cta">
-      <button class="btn gold" data-a="start" data-magnet>${resume ? 'أكمل من حيث توقفت' : 'ابدأ'}</button>
+      <button class="btn gold" data-a="start" data-magnet>${resume ? 'اعرض مهامك' : 'ابدأ'}</button>
       <button class="btn ghost" data-a="example">شاهد مثالًا</button>
       ${resume && !ui.confirmReset ? `<button class="btn link" data-a="restart">ابدأ من جديد</button>` : ''}
     </div>
     ${ui.confirmReset ? `<div class="confirm hello-confirm" role="alert"><p>تُمحى الخرائط المحفوظة في هذا الجهاز، ولا يمكن استرجاعها.</p>
       <div class="actions"><button class="btn ghost" data-a="restart-yes">امحُ الخرائط وابدأ من جديد</button><button class="btn link" data-a="restart-no">أبقِها</button></div></div>` : ''}
+    ${!S.online() ? '<p class="hint">هذه تجربة عامة. لإرسال الخريطة إلى إذكاء، استخدم الرابط الخاص بجهتك.</p>' : ''}
     <ul class="hello-facts">
       <li><b>نحو عشر دقائق</b>للمهمة الواحدة، ويُحفظ ما تدخله أولًا بأول</li>
       <li><b>وصف الإجراء</b>لا تفاصيل القضايا، فلا أسماء ولا أرقام قضايا ولا خصوم</li>
-      <li><b>داخل المملكة</b>تُحفظ إجاباتك، ولا يطّلع عليها إلا فريق إذكاء</li>
+      <li><b>الرابط الخاص بالجهة</b>شاركه فقط مع من يشاركك في رسم سير العمل</li>
       <li><b>«لا أعرف»</b>جواب مقبول في كل سؤال، ولا شيء نهائي حتى تقول: اكتملت</li>
     </ul>
   </section>`
@@ -127,8 +129,14 @@ function pick() {
   const legal = allTemplates().filter((t) => t.dept === 'legal')
   const list = q ? legal.filter((t) => (t.title + ' ' + t.sub + ' ' + (t.keywords || '')).includes(q)) : legal
   const prev = state.tasks.filter((t) => t.completed)
+  const drafts = state.tasks.filter((t) => !t.completed)
   return `<section class="page">
-    <h1>أي مهمة تُتعبكم أكثر؟</h1>
+    <button class="btn link" data-a="back:welcome">العودة إلى البداية</button>
+    <h1>اختر مهمة لرسمها</h1>
+    ${state.tasks.length ? `<div class="q"><h2 class="ql">مهامك السابقة</h2><div class="chips">
+      ${drafts.map((t) => chip('resume:' + t.id, esc(t.title) + ' · أكمل الرسم', false)).join('')}
+      ${prev.map((t) => chip('resume:' + t.id, esc(t.title) + ' · اعرض الخريطة', false)).join('')}
+    </div></div>` : ''}
     <p class="lead">ابدأ بها، فهي أوضح ما يُرسم وأنفع ما يُدرس.</p>
     <div class="q">
       <label class="ql" for="search">ابحث بكلمة، أو اختر من القائمة</label>
@@ -168,15 +176,17 @@ function mapScreen() {
       ${t.source === 'blank' ? `<label class="ql title-l" for="task-title">اسم المهمة <span class="muted">اختياري</span></label><input id="task-title" class="input" data-in="title" value="${esc(t.title === 'مهمة أخرى' ? '' : t.title)}" placeholder="مثل: الرد على التظلمات">` : ''}
       ${t.story ? `<details class="story-box"><summary>${t.source === 'arranged' ? 'النص كما فهمناه' : 'حكايتك كما كتبتها'}</summary><p>${esc(t.story)}</p></details>` : ''}
       <p class="rule-line">المرحلة الواحدة: ما يُنجَز دون أن ينتقل الملف إلى يد أخرى أو ينتظر.</p>
-      <p class="help">المس أي مرحلة لتعديلها، واسحبها من مقبضها لتغيير ترتيبها، وأضف بين أي مرحلتين بعلامة +.</p>
+      <p class="help">اضغط اسم المرحلة لفتحها، واسحبها من المقبض لتغيير ترتيبها. اضغط + لإضافة مرحلة.</p>
+      ${pending ? '<button class="btn ghost" data-a="accept-pending">نعم، تمرّ مهمتنا بجميع المراحل المتبقية</button>' : ''}
       ${t.source === 'arranged' ? `<p class="help">القيمة ذات النقطة استنتجناها من كلامك، والمس المرحلة لترى شاهدها. والباهتة مقترحة تنتظر تأكيدك.</p>` : ''}
     </div>
     ${R.trackHTML(t, 'map', ctx())}
     ${missingHint(t)}
   </section>
   <div class="bar"><div class="in">
-    <span class="note">${pending ? `بقيت ${count(pending, NOUN.stages)} دون جواب` : 'المراحل جاهزة'}</span>
-    <button class="btn primary" data-a="to-props">${pending ? 'هكذا عندنا، تابع' : 'تابع إلى الخصائص'}</button>
+    <button class="btn ghost" data-a="back:pick">اختيار المهمة</button>
+    <div class="bar-forward">${pending ? `<span class="note">بقيت ${count(pending, NOUN.stages)} دون جواب</span>` : ''}
+      <button class="btn primary" data-a="to-props">تابع إلى الخصائص</button></div>
   </div></div>`
 }
 
@@ -208,8 +218,10 @@ function propsScreen() {
     ${R.trackHTML(t, 'props', ctx())}
   </section>
   <div class="bar"><div class="in">
-    <span class="note">اكتملت ${n(done)} من ${count(act.length, NOUN.stagesAcc)}</span>
-    ${done === 0 ? `<button class="btn primary" data-a="walk">ابدأ بالمرحلة الأولى</button>` : `<button class="btn primary" data-a="to-task">تابع إلى أسئلة المهمة</button>`}
+    <button class="btn ghost" data-a="back:map">رسم المراحل</button>
+    <div class="bar-forward"><span class="note">اكتملت ${n(done)} من ${count(act.length, NOUN.stagesAcc)}</span>
+      ${done < act.length ? '<button class="btn ghost" data-a="walk">استكمل الخصائص</button>' : ''}
+      <button class="btn primary" data-a="to-task">تابع إلى أسئلة المهمة</button></div>
   </div></div>`
 }
 
@@ -263,7 +275,7 @@ function sheetHTML() {
   <div class="q"><span class="ql">هل تتعطل المهمة هنا؟</span>${evidence(s.friction)}<div class="chips">${sing('friction', D.FRICTION)}</div></div>
   ${fr === 'sometimes' || fr === 'often' ? `<div class="q"><span class="ql">ما الذي يعطّلها غالبًا؟</span><div class="chips">${D.REASONS.map((r) => chip(`tog:${id}:reasons:${r.id}`, r.label, s.friction.reasons.includes(r.id))).join('')}${unk(`tog:${id}:reasons:${D.UNKNOWN}`, s.friction.reasons.includes(D.UNKNOWN))}</div></div>` : ''}
 
-  <details ${s.docsIn.length || s.docsOut.length || s.constraints.length || s.note ? 'open' : ''}>
+  <details data-keep="stage:${id}" ${s.docsIn.length || s.docsOut.length || s.constraints.length || s.note ? 'open' : ''}>
     <summary>تفاصيل أكثر <span class="muted">اختيارية</span></summary>
     <div class="q"><span class="ql">ما الذي يدخل هذه المرحلة؟</span><div class="chips">${docChips(id, 'docsIn', s.docsIn)}</div></div>
     <div class="q"><span class="ql">وما الذي يخرج منها؟</span><div class="chips">${docChips(id, 'docsOut', s.docsOut)}</div></div>
@@ -325,7 +337,7 @@ function taskScreen() {
     <div class="q"><span class="ql">كم مرة تمر بكم هذه المهمة في الشهر تقريبًا؟</span>
       <div class="chips">${one('freq', D.FREQUENCY)}${chip('g:freq:custom', 'سأكتب العدد', g.freq === 'custom')}</div>
       ${g.freq === 'custom' || g.freq === 'gt100' ? `<label class="sr" for="freqNum">العدد في الشهر</label><input id="freqNum" class="input narrow" inputmode="numeric" data-in="freqNum" value="${esc(g.freqNum)}" placeholder="العدد في الشهر">` : ''}
-      <details class="more"><summary>سؤالان إضافيان، ولك أن تتركهما</summary>
+      <details class="more" data-keep="task-options"><summary>سؤالان إضافيان، ولك أن تتركهما</summary>
         <div class="q"><span class="ql">هل هي ثابتة على مدار السنة، أم تشتد في أوقات معينة؟</span><div class="chips">
           ${chip('g:seasonal:steady', 'ثابتة', g.seasonal === 'steady')}${chip('g:seasonal:peaks', 'تشتد في أوقات', g.seasonal === 'peaks')}${unk('g:seasonal:unknown', isUnknown(g.seasonal))}</div>
           ${g.seasonal === 'peaks' ? `<label class="sr" for="when">متى تشتد؟</label><input id="when" class="input" data-in="seasonWhen" value="${esc(g.seasonWhen)}" placeholder="متى؟ مثل: آخر السنة المالية">` : ''}</div>
@@ -345,7 +357,7 @@ function taskScreen() {
     <div class="q"><span class="ql">هل على هذه المهمة اشتراطات سرية أو صلاحيات اطلاع خاصة؟</span><div class="chips">
       ${chip('g:secret:yes', 'نعم', g.secret === 'yes')}${chip('g:secret:no', 'لا', g.secret === 'no')}${unk(`g:secret:${D.UNKNOWN}`, isUnknown(g.secret))}</div></div>
   </section>
-  <div class="bar"><div class="in"><button class="btn ghost" data-a="back:props">رجوع</button><button class="btn primary" data-a="to-reflect">اعرض الخريطة وأرقامها</button></div></div>`
+  <div class="bar"><div class="in"><button class="btn ghost" data-a="back:props">خصائص المراحل</button><button class="btn primary" data-a="to-reflect">اعرض الخريطة وأرقامها</button></div></div>`
 }
 
 // ── الانعكاس
@@ -378,16 +390,16 @@ function reflectScreen() {
       ${unknowns.length ? `<p class="aside-note">أجبت «لا أعرف» في ${unknowns.map((s) => '«' + esc(s.name) + '»').join(' و')}. يمكنك أن تسأل عنها زميلًا ثم تعود إليها.</p>` : ''}
     </div>
     <div class="deep">
-      <details><summary>رحلة المستند</summary>
+      <details data-keep="journey"><summary>رحلة المستند</summary>
         ${docs.length ? `<div class="chips">${docs.map((d) => chip('journey:' + d, esc(d), d === doc)).join('')}</div>${journeyHTML(t, doc)}`
           : '<p class="small muted">لم تحدد مستندات للمراحل. يمكنك إضافتها من «تفاصيل أكثر» في لوحة كل مرحلة.</p>'}
       </details>
-      <details><summary>الأنظمة والأدوات التي تستخدمونها اليوم</summary>
+      <details data-keep="systems"><summary>الأنظمة والأدوات التي تستخدمونها اليوم</summary>
         <div class="q"><label class="sr" for="systems">الأنظمة والأدوات</label><textarea id="systems" class="textarea short" data-in="systems" placeholder="مثل: نظام الاتصالات الإدارية، ومجلد مشترك، وناجز">${esc(t.systems)}</textarea></div>
       </details>
     </div>
   </section>
-  <div class="bar"><div class="in"><button class="btn ghost" data-a="back:task">رجوع</button><button class="btn primary" data-a="finish">اكتملت المهمة</button></div></div>`
+  <div class="bar"><div class="in"><button class="btn ghost" data-a="back:task">أسئلة المهمة</button><button class="btn primary" data-a="finish">${S.online() ? 'أرسل الخريطة إلى إذكاء' : 'أكمل الخريطة'}</button></div></div>`
 }
 
 function journeyHTML(t, doc) {
@@ -407,11 +419,15 @@ function shareBox() {
 
 function finalScreen() {
   const t = curTask()
+  const received = ui.received.has(t.id)
+  const heading = !S.online() ? 'اكتملت خريطة' : received ? 'وصلت إلى إذكاء خريطة' : 'خريطة جاهزة للإرسال'
   return `<section class="page done">
-    <h1>شكرًا لك. وصلتنا خريطة «${esc(t.title)}»</h1>
+    <h1>${heading} «${esc(t.title)}»</h1>
+    ${S.online() && !received ? `<p class="lead" role="status">${ui.sending ? 'جارٍ إرسال الخريطة…' : esc(ui.sendError || 'الخريطة محفوظة في هذا المتصفح، وتنتظر تأكيد الحفظ لدى إذكاء.')}</p>` : ''}
     <div class="actions">
-      <button class="btn primary" data-a="print">${icon('print', 18)}نزّل الخريطة</button>
-      <button class="btn ghost" data-a="another">${icon('add', 18)}أضف مهمة أخرى</button>
+      ${S.online() && !received ? `<button class="btn primary" data-a="retry-send" ${ui.sending ? 'disabled' : ''}>أعد محاولة الإرسال</button>` : ''}
+      <button class="btn ghost" data-a="print">${icon('print', 18)}اطبع الخريطة أو احفظها PDF</button>
+      <button class="btn ghost" data-a="another">العودة إلى المهام</button>
     </div>
     <div class="paper" aria-label="الخريطة كما تُطبع">${R.printHTML(t, ctx())}</div>
   </section>`
@@ -456,7 +472,9 @@ function exampleView() {
 const SCREENS = { welcome, pick, map: mapScreen, props: propsScreen, task: taskScreen, reflect: reflectScreen, final: finalScreen }
 
 function render() {
+  if (ui.unavailable) return
   const sheetEl = $('#sheet')
+  for (const detail of document.querySelectorAll('details[data-keep]')) ui.details.set(detail.dataset.keep, detail.open)
   const sheetScroll = sheetEl.scrollTop
   const trackScroll = $('#track-wrap')?.scrollLeft
   const active = document.activeElement
@@ -464,19 +482,24 @@ function render() {
   const caret = active && 'selectionStart' in active ? active.selectionStart : null
 
   if (!curTask() && !['welcome', 'pick'].includes(state.screen)) state.screen = 'pick'
+  if (curTask()?.completed && ['map', 'props', 'task', 'reflect'].includes(state.screen)) state.screen = 'final'
   if (!SCREENS[state.screen]) state.screen = curTask() ? 'map' : 'pick' // شاشاتٌ أُلغيت من نسخٍ سابقة
   $('#app').innerHTML = header() + `<main id="main">${SCREENS[state.screen]()}</main>`
   const t = curTask()
   $('#print').innerHTML = t && ['reflect', 'final'].includes(state.screen) ? R.printHTML(t, ctx()) : ''
 
-  const open = !!ui.sheet && ['map', 'props'].includes(state.screen)
-  sheetEl.innerHTML = open ? sheetHTML() : ''
+  const sheet = ['map', 'props'].includes(state.screen) ? sheetHTML() : ''
+  const open = !!sheet
+  sheetEl.innerHTML = sheet
   sheetEl.classList.toggle('on', open)
   sheetEl.toggleAttribute('inert', !open)
   $('#scrim').classList.toggle('on', open)
   $('#scrim').hidden = !open
   document.body.classList.toggle('sheet-open', open)
   if (open) sheetEl.scrollTop = sheetScroll
+  for (const detail of document.querySelectorAll('details[data-keep]')) {
+    if (ui.details.has(detail.dataset.keep)) detail.open = ui.details.get(detail.dataset.keep)
+  }
 
   $('#modal').innerHTML = ui.example ? exampleView() : ''
   $('#app').toggleAttribute('inert', ui.example)
@@ -504,16 +527,47 @@ function toast(text, undoable = false) {
 // ════════════ الأفعال ════════════
 
 let lastScreen = null
-function go(screen) {
-  update((s) => { s.screen = screen }, { undoable: false })
-  scrollTo(0, 0)
+let restoringView = false
+function rememberView(replace = false) {
+  const old = history.state?.workflow
+  if (old?.screen === state.screen && old.task === state.cur) return
+  const entry = { ...history.state, workflow: { screen: state.screen, task: state.cur } }
+  if (replace) history.replaceState(entry, '')
+  else history.pushState(entry, '')
 }
-onChange(() => { if (state.screen !== lastScreen) { lastScreen = state.screen; S.event('step', { screen: state.screen }) } })
+
+function go(screen) {
+  ui.sheet = null
+  update((s) => { s.screen = screen }, { undoable: false, touchTask: false })
+  scrollTo(0, 0)
+  const heading = $('#main h1')
+  heading?.setAttribute('tabindex', '-1')
+  heading?.focus({ preventScroll: true })
+}
+onChange(() => {
+  if (!restoringView) rememberView()
+  if (state.screen !== lastScreen) {
+    lastScreen = state.screen
+    S.event('step', { screen: state.screen })
+  }
+})
+addEventListener('popstate', ({ state: entry }) => {
+  const view = entry?.workflow
+  if (!view || !SCREENS[view.screen] || ui.unavailable) return
+  restoringView = true
+  try {
+    state.cur = view.task
+    go(view.screen)
+  } finally { restoringView = false }
+})
 const stageOf = (t, id) => t.stages.find((s) => s.id === id)
 
 function openStage(id) {
+  if (!stageOf(curTask(), id)) return
   ui.sheet = id; ui.roleDraft = null; ui.docPick = null; ui.shareLink = null
   render()
+  $('#sheet').scrollTop = 0
+  if (document.activeElement !== $('#stage-name')) $('#sheet [data-a="close"]')?.focus({ preventScroll: true })
   const el = document.querySelector(`.card[data-sid="${id}"]`)
   if (el) el.scrollIntoView({ block: 'center', inline: 'center', behavior: reduced() ? 'auto' : 'smooth' })
 }
@@ -559,7 +613,8 @@ function moveStage(id, dir) {
 
 function setStatus(id, v) {
   const s = stageOf(curTask(), id)
-  update(() => { s.status = s.status === v && v !== 'no' ? 'pending' : v })
+  if (v === 'no' && ui.sheet === id) ui.sheet = null
+  update(() => { s.status = v })
   if (v === 'no') toast(`طُويت «${s.name}»، ويمكنك استرجاعها`, true)
   if (v === 'sometimes' && ui.sheet !== id) openStage(id)
 }
@@ -618,9 +673,9 @@ function appendText(target, text) {
 const exclusive = (list, val) => list.includes(val) ? list.filter((x) => x !== val) : [...list.filter((x) => (val === D.UNKNOWN ? false : x !== D.UNKNOWN)), val]
 
 const ACTIONS = {
+  reload() { location.reload() },
   start() {
     S.event('start')
-    if (state.tasks.length && state.cur) return go(state.screen === 'welcome' ? 'map' : state.screen)
     go('pick')
   },
   restart() { ui.confirmReset = true; render() },
@@ -631,11 +686,20 @@ const ACTIONS = {
   'close-ex-start'() { ui.example = false; go('pick') },
   undo() { undo(); ui.toast = null; render() },
   dept(id) { ui.search = ''; update((s) => { s.dept = id }, { undoable: false }) },
-  tpl(id) { update((s) => { const t = taskFromTemplate(id); s.tasks.push(t); s.cur = t.id; s.screen = 'map' }); S.event('task', { template: id }) },
-  other() { update((s) => { const t = blankTask('مهمة أخرى'); s.tasks.push(t); s.cur = t.id; s.screen = 'map' }); S.event('task', { template: null }) },
+  resume(id) {
+    const task = state.tasks.find((t) => t.id === id)
+    if (!task) return
+    state.cur = id
+    go(task.completed ? 'final' : 'map')
+    if (task.completed && S.online()) void sendFinal()
+  },
+  tpl(id) { update((s) => { const t = taskFromTemplate(id); s.tasks.push(t); s.cur = t.id }, { render: false }); go('map'); S.event('task', { template: id }) },
+  other() { update((s) => { const t = blankTask('مهمة أخرى'); s.tasks.push(t); s.cur = t.id }, { render: false }); go('map'); S.event('task', { template: null }) },
   clone(id) {
     const src = state.tasks.find((t) => t.id === id)
-    update((s) => { const t = cloneTask(src, 'مهمة جديدة من خريطة «' + src.title + '»'); s.tasks.push(t); s.cur = t.id; s.screen = 'map' })
+    if (!src) return
+    update((s) => { const t = cloneTask(src, 'مهمة جديدة من خريطة «' + src.title + '»'); s.tasks.push(t); s.cur = t.id }, { render: false })
+    go('map')
   },
   'st-yes'(id) { setStatus(id, 'yes') },
   'st-no'(id) { setStatus(id, 'no') },
@@ -643,7 +707,11 @@ const ACTIONS = {
   'st-restore'(id) { update(() => { stageOf(curTask(), id).status = 'yes' }) },
   open(id) { openStage(id) },
   go(id) { if (id) openStage(id) },
-  close() { ui.sheet = null; ui.shareLink = null; render() },
+  close() {
+    const id = CSS.escape(ui.sheet || '')
+    ui.sheet = null; ui.shareLink = null; render()
+    document.querySelector(`[data-a="open:${id}"], [data-a="dec-open:${id}"]`)?.focus({ preventScroll: true })
+  },
   walk() {
     const act = C.activeStages(curTask())
     const first = act.find((s) => !stageDone(s)) || act[0]
@@ -728,12 +796,27 @@ const ACTIONS = {
     update(() => { t.stages.splice(at, 0, st); t.dismissed = [...(t.dismissed || []), Number(i)] })
   },
   'hint-no'(i) { update(() => { const t = curTask(); t.dismissed = [...(t.dismissed || []), Number(i)] }) },
-  'to-props'() {
-    update((s) => { for (const st of curTask().stages) if (st.status === 'pending') st.status = 'yes'; s.screen = 'props' })
-    ui.sheet = null
-    ACTIONS.walk()
+  'accept-pending'() {
+    update(() => { for (const stage of curTask().stages) if (stage.status === 'pending') stage.status = 'yes' })
   },
-  'to-task'() { ui.sheet = null; go('task') },
+  'to-props'() {
+    const task = curTask()
+    const pending = task.stages.find((stage) => stage.status === 'pending')
+    if (pending) {
+      openStage(pending.id)
+      return toast('أجب عن المراحل المتبقية أو أكد أنها جميعًا ضمن مهمتك.')
+    }
+    if (!C.activeStages(task).length) return toast('أضف مرحلة أو استرجع إحدى المراحل للمتابعة.')
+    go('props')
+  },
+  'to-task'() {
+    const task = curTask()
+    if (!C.activeStages(task).length || task.stages.some((stage) => stage.status === 'pending')) {
+      go('map')
+      return toast('أبقِ مرحلة واحدة على الأقل وأجب عن المراحل المعلّقة قبل المتابعة.')
+    }
+    go('task')
+  },
   'to-reflect'() { go('reflect') },
   back(screen) { ui.sheet = null; go(screen) },
   g(field, val) { update(() => { const g = curTask().global; g[field] = g[field] === val ? null : val }) },
@@ -744,12 +827,15 @@ const ACTIONS = {
       const t = curTask()
       t.completed = true
       t.final = { at: new Date().toISOString(), numbers: C.computeNumbers(t), handoffs: C.handoffs(t, s.roles) }
-    })
+      s.screen = 'final'
+    }, { undoable: false })
     S.event('completed', { task: curTask().id })
-    go('final')
+    scrollTo(0, 0)
+    if (S.online()) void sendFinal()
   },
+  'retry-send'() { void sendFinal() },
   print() { S.event('print'); window.print() },
-  another() { ui.search = ''; update((s) => { s.cur = null; s.screen = 'pick' }, { undoable: false }); scrollTo(0, 0) },
+  another() { ui.search = ''; go('pick') },
   async 'share-stage'(id) {
     const url = await createShare({ taskId: curTask().id, stageId: id })
     if (!url) return toast('تعذّر إنشاء الرابط الآن، فحاول بعد قليل.')
@@ -817,9 +903,9 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { if (ui.example) { ui.example = false; render() } else if (ui.sheet) { ui.sheet = null; render() } }
   if (e.key === 'Enter' && e.target.dataset?.in === 'role') { e.preventDefault(); ACTIONS['role-save'](ui.sheet) }
   if (e.key === 'Enter' && e.target.dataset?.in === 'doc') { e.preventDefault(); ACTIONS['doc-save']() }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.target.closest('input,textarea')) { e.preventDefault(); ACTIONS.undo() }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && $('.top [data-a="undo"]') && !e.target.closest('input,textarea')) { e.preventDefault(); ACTIONS.undo() }
 })
-$('#scrim').addEventListener('click', () => { ui.sheet = null; render() })
+$('#scrim').addEventListener('click', ACTIONS.close)
 
 // ── السحبُ لتغيير الترتيب (ومعه بديلٌ بالأزرار في لوحة الخصائص)
 document.addEventListener('pointerdown', (e) => {
@@ -869,20 +955,59 @@ document.addEventListener('pointercancel', (e) => endDrag(e, true))
 addEventListener('blur', () => ui.drag && endDrag(null, true))
 addEventListener('resize', () => requestAnimationFrame(R.drawArrows))
 
+async function sendFinal() {
+  if (ui.sending) return
+  const task = curTask()
+  if (!task?.completed || ui.received.has(task.id)) return
+  ui.sending = true; ui.sendError = ''; render()
+  try {
+    const receipt = await S.syncNow()
+    if (!(receipt?.completed || []).includes(task.id)) throw new Error('receipt')
+  } catch {
+    ui.sendError = 'لم يصل تأكيد الحفظ من إذكاء. بقيت الخريطة في هذا المتصفح، ويمكنك إعادة المحاولة.'
+  } finally {
+    ui.sending = false
+    if (state.screen === 'final') render()
+  }
+}
+
 // ── البدء: الرابط الخاص إن وُجد، ثم الرسم
 onChange(render)
-onSynced((r) => { for (const note of r?.notices || []) toast(note.text) })
-render()
+function onReceipt(r) {
+  for (const id of r?.completed || []) ui.received.add(id)
+  if (!ui.sending && state.screen === 'final' && ui.received.has(curTask()?.id)) render()
+  for (const note of r?.notices || []) toast(note.text)
+}
+onSynced(onReceipt)
+if (S.online()) {
+  $('#app').innerHTML = `<main class="page">${R.logo()}<p role="status">جارٍ فتح رابط الجهة…</p></main>`
+} else {
+  render()
+  rememberView(true)
+}
 ;(async () => {
   if (!S.online()) return
   const r = await S.open()
   if (!r || r.error) {
-    if (r?.error === 404) $('#app').innerHTML = `<main class="page gone">${R.logo()}<h1>هذا الرابط غير صالح</h1><p class="lead">ربما أُلغي أو نُسخ ناقصًا. اطلب من فريق إذكاء رابطًا جديدًا.</p></main>`
-    return // غير ذلك: نعمل من المحفوظ في المتصفح ونزامن حين يعود الاتصال
+    if (r?.error === 404) {
+      ui.unavailable = true
+      $('#app').innerHTML = `<main class="page gone">${R.logo()}<h1>هذا الرابط غير صالح</h1><p class="lead">ربما أُلغي أو نُسخ ناقصًا. اطلب من فريق إذكاء رابطًا جديدًا.</p></main>`
+    } else if (!state.updatedAt) {
+      $('#app').innerHTML = `<main class="page gone">${R.logo()}<h1>تعذّر فتح رابط الجهة</h1><p class="lead">تحقّق من الاتصال وحاول مجددًا.</p><button class="btn primary" data-a="reload">أعد المحاولة</button></main>`
+    } else {
+      render()
+      rememberView(true)
+      if (state.screen === 'final') {
+        S.pushState(state, onReceipt)
+        void sendFinal()
+      }
+    }
+    return
   }
   setOrg(r.org)
   ui.caps = r.capabilities || ui.caps
   extraTemplates.splice(0, extraTemplates.length, ...(r.templates || []))
+  for (const task of r.state?.tasks || []) if (task.completed) ui.received.add(task.id)
   hydrate(r.state)
   // رابطٌ أرسله زميل: يفتح على المهمة والمرحلة المقصودتين
   const q = new URLSearchParams(location.search)
@@ -893,5 +1018,10 @@ render()
   }
   S.event('opened')
   render()
+  rememberView(true)
+  if (state.screen === 'final' && !ui.received.has(curTask()?.id)) {
+    S.pushState(state, onReceipt)
+    void sendFinal()
+  }
   for (const note of r.notices || []) toast(note.text)
 })()

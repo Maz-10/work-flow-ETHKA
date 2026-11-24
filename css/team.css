@@ -40,3 +40,13 @@ table.links { width: 100%; border-collapse: collapse; font-size: var(--t-small);
 .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--gold-ink); text-decoration: none; min-height: 44px; }
 .team .ledger { margin-top: 18px; }
 .t-grid > * { min-width: 0; }
+.team-title { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.team-records { overflow-x: auto; }
+.links .org { text-decoration: underline; text-underline-offset: 4px; }
+.copy-row .input { min-width: 0; flex: 1; }
+.copy-row .btn { flex-shrink: 0; }
+.share-tools .copy-message { margin-top: 10px; }
+.share-message { margin-top: 10px; }
+.share-message summary { cursor: pointer; padding-block: 8px; }
+.share-message textarea { min-height: 10rem; resize: vertical; }
+@media (max-width: 999px) { .team-records { order: 1; } }

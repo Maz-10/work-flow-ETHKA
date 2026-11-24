@@ -61,7 +61,7 @@
       var s = JSON.parse(JSON.stringify(body)); s.screen = undefined; s.cur = undefined
       ;(s.tasks || []).forEach(function (t) { if (!t.keepStory) t.story = ''; red.redactTask(t) })
       db.states[r.token] = merge(db.states[r.token], s); save()
-      return reply(200, { ok: true, notices: [] })
+      return reply(200, { ok: true, notices: [], completed: s.tasks.filter(function (t) { return t.completed }).map(function (t) { return t.id }) })
     }
     if (method === 'POST' && rest === '/events') { (r.events = r.events || []).push({ name: body.name, at: new Date().toISOString(), data: body.data || {} }); save(); return reply(200, { ok: true }) }
     if (method === 'POST' && rest === '/booking') { (r.bookings = r.bookings || []).push(Object.assign({ at: new Date().toISOString() }, body)); save(); return reply(200, { ok: true }) }
